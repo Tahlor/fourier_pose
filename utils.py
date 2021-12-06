@@ -7,6 +7,9 @@ import random
 from easydict import EasyDict as edict
 import yaml
 import params
+from collections import OrderedDict
+from models.CPM import cpm_model
+from jpeg2dct.numpy import load, loads
 
 def Config(filename):
     with open(filename, 'r') as f:
@@ -32,9 +35,161 @@ class AverageMeter(object):
         self.count += n
         self.avg = self.sum / self.count
 
+# -------------------new functions------------------
+def add_alpha_border(hand_img):
+    hand_img = hand_img.copy()
+    fg_mask = (hand_img[:,:,-1] == 0).astype(np.uint8)
+    fg_mask = cv2.dilate(fg_mask, np.ones((3, 3)))
+    alpha_mask = fg_mask * 255
+    alpha_mask = 255 - cv2.GaussianBlur(alpha_mask, (7, 7), 0)
+    #alpha_mask[np.logical_not(fg_mask)] = 255
+    hand_img[:,:,-1] = alpha_mask
+    hand_seg = alpha_mask > 200
+    hand_all_seg = alpha_mask > 0
+    return hand_img, hand_seg, hand_all_seg
+
+def add_alpha_image_to_bg(alpha_img, bg_img):
+    alpha_s = np.repeat((alpha_img[:,:,3]/255.0)[:,:,np.newaxis], 3, axis=2)
+    alpha_l = 1.0 - alpha_s
+    combined_img = np.multiply(alpha_s ,alpha_img[:,:,:3]) + np.multiply(alpha_l, bg_img)
+    return combined_img
+
+def merge_hands_no_bg(img_top_hand, img_bot_hand):
+    assert img_top_hand is not None
+    if img_bot_hand is not None:
+        img_bot_hand, _, _ = add_alpha_border(img_bot_hand)
+        img_top_hand, _, _ = add_alpha_border(img_top_hand)
+    else:
+        img_top_hand, _, _ = add_alpha_border(img_top_hand)
+    return img_top_hand, img_bot_hand
+    
+def merge_hands_cropped(img_top_hand, img_bot_hand, bg_img, shift_augment):
+    bg_img_cropped = crop_bg(bg_img, img_top_hand.shape[:2], shift_augment)
+    if img_bot_hand is not None:
+        combined_hand_img = add_alpha_image_to_bg(img_bot_hand, bg_img_cropped)
+        combined_hand_img = add_alpha_image_to_bg(img_top_hand, combined_hand_img)
+    else:
+        combined_hand_img = add_alpha_image_to_bg(img_top_hand, bg_img_cropped)
+    return combined_hand_img
+    
+def crop_bg(bg_img, crop_shape, shift_augment):
+    bg_h, bg_w = bg_img.shape[:2]
+    crop_h, crop_w = crop_shape
+    #print("{}, {}".format(bg_img.shape, crop_shape))
+    #row_start = random.randint(0, bg_h - crop_h)
+    #row_end = row_start + crop_h
+    #col_start = random.randint(0, bg_w - crop_w)
+    #col_end = col_start + crop_w
+    row_start = int(bg_h/2 - crop_h/2)
+    row_end = int(row_start + crop_h)
+    col_start = int(bg_w/2 - crop_w/2)
+    col_end = int(col_start + crop_w)
+    bg_img_cropped = bg_img[row_start:row_end, col_start:col_end]
+    return bg_img_cropped
+    
+def img2freq(img):
+    random_str = str(random.random())
+    tmp_save_path = "temp/{}.jpg".format(random_str)
+    cv2.imwrite(tmp_save_path, img)
+    dct_y, _, _ = load(tmp_save_path)
+    os.remove(tmp_save_path)
+    return dct_y
+    """
+    dft = cv2.dft(np.float32(img),flags = cv2.DFT_COMPLEX_OUTPUT)
+    dft_shift = np.fft.fftshift(dft)
+    mag, phase = cv2.cartToPolar(dft_shift[:,:,0], dft_shift[:,:,1])
+    real, imag = cv2.polarToCart(mag, phase)
+    #print(real.shape)
+    #print(np.histogram(real))
+    #print(imag.shape)
+    #print(np.histogram(imag))
+    back = cv2.merge([real, imag])
+    back_ishift = np.fft.ifftshift(back)
+    img_back = cv2.idft(back_ishift)
+    img_back = cv2.magnitude(img_back[:,:,0], img_back[:,:,1])
+    img_back = cv2.normalize(img_back, None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX, dtype=cv2.CV_8U)
+    #magnitude_spectrum = 20*np.log(cv2.magnitude(dft_shift[:,:,0],dft_shift[:,:,1]) + 0.000000001)
+    #magnitude_spectrum = magnitude_spectrum/np.amax(magnitude_spectrum)*255
+    #return magnitude_spectrum
+    #f_ishift = np.fft.ifftshift(dft_shift)
+    #img_back = cv2.idft(f_ishift)
+    #img_back = cv2.magnitude(img_back[:,:,0],img_back[:,:,1])
+    #img_back = img_back/np.amax(img_back)*255
+    #print(np.histogram(img_back))
+    return img_back
+    """
+    
+    
+def freq2img(freq):
+    out = np.fft.ifftshift(freq)
+    
+def read_ego2hands_files():
+    ego2hands_root_dir = 'C:/School/Alex/PoseDatasets/Ego2HandsPose/train_orig'
+    #'/home/alex/Documents/Data/Ego2Hands/train'
+    img_path_list = []
+    energy_path_list = []
+    kpts_2d_glob_path_list = []
+    for root, dirs, files in os.walk(ego2hands_root_dir):
+        for file_name in files:
+            if file_name.endswith(".png") and "energy" not in file_name and "vis" not in file_name:
+                kpts_2d_path = os.path.join(root, "kpts_2d_glob_stage2.npy")
+                if os.path.exists(kpts_2d_path):
+                    img_path = os.path.join(root, file_name)
+                    img_path_list.append(img_path)
+                    energy_path = img_path.replace(".png", "_energy.png")
+                    energy_path_list.append(energy_path)
+                    kpts_2d_glob_path_list.append(kpts_2d_path)
+                if len(img_path_list) > 100:
+                    return img_path_list, energy_path_list, kpts_2d_glob_path_list
+                    
+    return img_path_list, energy_path_list, kpts_2d_glob_path_list
+    
+def read_bg_data():
+    root_bg_dir = 'C:/School/Alex/backgrounds'
+    #'/home/alex/Documents/Data/backgrounds'
+    # backgrounds
+    bg_path_list = []
+    for root, dirs, files in os.walk(root_bg_dir):
+        for file_name in files:
+            if file_name.endswith(".jpg") or file_name.endswith(".png"):
+                bg_path_list.append(os.path.join(root, file_name))
+                
+            if len(bg_path_list) > 10:
+                return bg_path_list
+    return bg_path_list
+    
+def construct_model_2d():
+    model = cpm_model.CPM(k=21)
+    pretrained_path = 'models_saved/ego2hands/2d/ego2hands_CPM_2d_pretrained.pth.tar_latest.pth.tar'
+    print("model_2d #params: {}".format(sum(p.numel() for p in model.parameters() if p.requires_grad)))
+
+    # load pretrained model
+    print("Loading {}".format(pretrained_path))
+    state_dict = torch.load(pretrained_path)['state_dict']
+    new_state_dict = OrderedDict()
+    for k, v in state_dict.items():
+        name = k[7:]
+        new_state_dict[name] = v
+    model.load_state_dict(new_state_dict)
+    model = torch.nn.DataParallel(model, device_ids=[0]).cuda()
+    return model
+
+# ------------------old functions-------------------
 def get_model_2d_save_path(args, config):
     model_dir_path = os.path.join(params.MODEL_SAVE_DIR_PATH, config.dataset, "2d")
-    model_name = '{}_{}_2d_pretrained.pth.tar'.format(config.dataset, config.model_2d_name)
+    model_name = '{}_{}_2d'.format(config.dataset, config.model_2d_name)
+    model_save_path = os.path.join(model_dir_path, model_name)
+    return model_dir_path, model_save_path
+    
+def get_model_mano_save_path(args, config):
+    model_dir_path = os.path.join(params.MODEL_SAVE_DIR_PATH, config.dataset, "mano")
+    model_name = '{}_{}_mano'.format(config.dataset, config.model_mano_name)
+    model_save_path = os.path.join(model_dir_path, model_name)
+    return model_dir_path, model_save_path
+    
+def get_model_mano_save_path(args, config):
+    model_dir_path = os.path.join(params.MODEL_SAVE_DIR_PATH, config.dataset, "mano")
+    model_name = '{}_{}_mano'.format(config.dataset, config.model_mano_name)
     model_save_path = os.path.join(model_dir_path, model_name)
     return model_dir_path, model_save_path
     
@@ -232,7 +387,7 @@ def seg_augmentation_w_kpts(img, seg, energy, kpts_2d_glob):
     energy_new[new_top:new_bot, new_left:new_right] = energy[old_top:old_bot, old_left:old_right]
     return img_new, seg_new, energy_new, kpts_2d_glob#offset_np
     
-def crop_hand_for_2d(img_top_hand, img_bot_hand, energy, seg, kpts_2d_glob, img_size=224, fix_scale = False, size_th = 5000, side_th = 10, side=1):
+def crop_hand_for_2d(img_top_hand, img_bot_hand, energy, seg, kpts_2d_glob, shift_augment = None, img_size=224, fix_scale = True, size_th = 5000, side_th = 10, side=1):
     img = img_top_hand.copy()
     img_h, img_w = img_top_hand.shape[0], img_top_hand.shape[1]
     
@@ -262,7 +417,7 @@ def crop_hand_for_2d(img_top_hand, img_bot_hand, energy, seg, kpts_2d_glob, img_
     #print("max_range: {}".format(max_range))
     mid_point = np.array([row_min + row_range/2.0, col_min + col_range/2.0])
     # Randomize croped window
-    new_max_range = random.uniform(scale_low, scale_high) * max_range
+    new_max_range = max_range*1.55##random.uniform(scale_low, scale_high) * max_range
     offset_point = mid_point - new_max_range/2.0
     # Make sure offset point is no less than (0,0)
     #!offset_point = np.maximum(offset_point, np.array([0.0, 0.0]))
@@ -271,17 +426,17 @@ def crop_hand_for_2d(img_top_hand, img_bot_hand, energy, seg, kpts_2d_glob, img_
     #row_col_room = max((new_max_range - max_range)/4.0, 0)
     #row_offset = random.uniform(0.0, row_col_room)
     #col_offset = random.uniform(0.0, row_col_room)
-    row_shift_room = max((new_max_range - row_range)/4.0, 0)
-    row_offset = random.uniform(0.0, row_shift_room)
-    col_shift_room = max((new_max_range - col_range)/4.0, 0)
-    col_offset = random.uniform(0.0, col_shift_room)
+    ##row_shift_room = max((new_max_range - row_range)/4.0, 0)
+    ##row_offset = random.uniform(0.0, row_shift_room)
+    ##col_shift_room = max((new_max_range - col_range)/4.0, 0)
+    ##col_offset = random.uniform(0.0, col_shift_room)
     #row_offset = (new_max_range - max_range)/4.0#! if offset_point[0] > 0.0 else 0.0
     #col_offset = (new_max_range - max_range)/4.0#! if offset_point[1] > 0.0 else 0.0
 
     #!row_start = min(int(offset_point[0] + row_offset), img_h - 50)
     #!col_start = min(int(offset_point[1] + col_offset), img_w - 50)
-    row_start = int(offset_point[0] + row_offset)
-    col_start = int(offset_point[1] + col_offset)
+    row_start = int(offset_point[0])# + row_offset)
+    col_start = int(offset_point[1])# + col_offset)
 
     crop_range = max_range + (new_max_range - max_range)/2.0
     crop_range = min(crop_range, min(img_h, img_w) - 1)
@@ -291,6 +446,14 @@ def crop_hand_for_2d(img_top_hand, img_bot_hand, energy, seg, kpts_2d_glob, img_
 
     row_end = int(row_start + crop_range)
     col_end = int(col_start + crop_range)
+    
+    # Add shift augment
+    if shift_augment is not None:
+        row_start += shift_augment[0]
+        row_end += shift_augment[0]
+        
+        col_start += shift_augment[1]
+        col_end += shift_augment[1]
 
     # Adjust if out of image frame
     bounding_box = np.array([row_start, row_end, col_start, col_end], dtype=np.int32)

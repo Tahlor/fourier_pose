@@ -10,6 +10,8 @@ import torch.backends.cudnn as cudnn
 from collections import OrderedDict
 from data_loaders import Ego2Hands
 from models.CPM import cpm_model
+#from models.resnet import resnet
+from models.resnet import resnet, resnet_dct
 from utils import *
 import params
 
@@ -18,6 +20,7 @@ def parse():
     parser = argparse.ArgumentParser()
     parser.add_argument('--config', type=str, dest='config')
     parser.add_argument('--use_seg', action='store_true', default=False)
+    parser.add_argument('--pretrained', action='store_true', default=False)
     parser.add_argument('--eval', action='store_true', default=False)
     parser.add_argument('--adapt', action='store_true', default=False)
     parser.add_argument('--save_outputs', action='store_true', default=False)
@@ -29,11 +32,15 @@ def construct_model_2d(args, config):
     else:
         raise Exception("Error, model {} not implemented".format(config.model_2d_name))
 
-    pretrained_path = get_model_2d_save_path(args, config)
+    _, pretrained_path = get_model_2d_save_path(args, config)
+    pretrained_path = pretrained_path + '_pretrained.pth.tar'
     print("model_2d #params: {}".format(sum(p.numel() for p in model.parameters() if p.requires_grad)))
 
     # load pretrained model
-    if args.eval:
+    if args.pretrained or args.eval:
+        if not os.path.exists(pretrained_path):
+            print("Model not found : {}".format(pretrained_path))
+            return None
         print("Loading {}".format(pretrained_path))
         state_dict = torch.load(pretrained_path)['state_dict']
         new_state_dict = OrderedDict()
@@ -41,6 +48,33 @@ def construct_model_2d(args, config):
             name = k[7:]
             new_state_dict[name] = v
         model.load_state_dict(new_state_dict)
+    model = torch.nn.DataParallel(model, device_ids=[0]).cuda()
+    return model
+    
+def construct_model_mano(args, config):
+    model = resnet.resnet18(num_classes = 51)
+    #resnet_dct.ResNetDCT_Upscaled_Static(channels=1, pretrained = False, num_classes = 51)#45)#channels=64
+    #resnet.resnet18(num_classes = 45)
+    print("model_mano {} #params: {}".format(config.model_mano_name, sum(p.numel() for p in model.parameters() if p.requires_grad)))
+    _, pretrained_path = get_model_mano_save_path(args, config)
+    pretrained_path = pretrained_path + '_pretrained.pth.tar'
+    
+    # load pretrained model
+    if args.pretrained or args.eval:
+        if not os.path.exists(pretrained_path):
+            print("Model not found : {}".format(pretrained_path))
+            return None
+        print("Loading {}".format(pretrained_path))
+        state_dict = torch.load(pretrained_path)['state_dict']
+        new_state_dict = OrderedDict()
+        for k, v in state_dict.items():
+            name = k[7:]
+            if name not in model.state_dict():
+                continue
+            else:
+                new_state_dict[name] = v
+        model.load_state_dict(new_state_dict)
+
     model = torch.nn.DataParallel(model, device_ids=[0]).cuda()
     return model
 
@@ -84,7 +118,7 @@ def train_model_2d(args, config, model_2d, seq_i = -1):
     
     # Training starts
     while iters < max_iter:
-        for i, (img_input_tensor, heatmpas_gt_tensor) in enumerate(train_loader):
+        for i, (img_input_tensor, heatmpas_gt_tensor, img_input_rgb_tensor) in enumerate(train_loader):
             iters += 1
             if iters > max_iter:
                 break
@@ -128,13 +162,17 @@ def train_model_2d(args, config, model_2d, seq_i = -1):
                 # Visualize Outputs
                 if args.save_outputs:
                     img_input_np = img_input_var.cpu().data.numpy().transpose(0,2,3,1)
+                    img_input_rgb_np = img_input_rgb_tensor.cpu().data.numpy()
                     heatmaps_output_np = heatmaps_stage_final.cpu().data.numpy().transpose(0,2,3,1)
                     heatmaps_gt_np = heatmpas_gt_tensor.cpu().data.numpy().transpose(0,2,3,1)
                     seq_status = "seq_{}".format(seq_i) if seq_i != -1 else ""
-                    for batch_i, (img_input_i, heatmaps_output_i, heatmaps_gt_i) in enumerate(zip(img_input_np, heatmaps_output_np, heatmaps_gt_np)):
-                        cv2.imwrite(os.path.join(out_2d_path, "{}_{}_{}img_gray.png".format(iters, batch_i, seq_status)), (img_input_i[:,:,0]*255.0 + 128.0).astype(np.uint8))#+128.0
-                        cv2.imwrite(os.path.join(out_2d_path, "{}_{}_{}img_edge.png".format(iters, batch_i, seq_status)), (img_input_i[:,:,1]*255.0 + 128.0).astype(np.uint8))#+128.0
-                        cv2.imwrite(os.path.join(out_2d_path, "{}_{}_{}img_seg.png".format(iters, batch_i, seq_status)), (img_input_i[:,:,2]*255.0 + 128.0).astype(np.uint8))#+128.0
+                    for batch_i, (img_input_i, heatmaps_output_i, heatmaps_gt_i, img_input_rgb_i) in enumerate(zip(img_input_np, heatmaps_output_np, heatmaps_gt_np, img_input_rgb_np)):
+                        cv2.imwrite(os.path.join(out_2d_path, "{}_{}_{}img_gray_freq.png".format(iters, batch_i, seq_status)), (img_input_i[:,:,0]*255.0 + 128.0).astype(np.uint8))#+128.0
+                        #cv2.imwrite(os.path.join(out_2d_path, "{}_{}_{}img_edge_freq.png".format(iters, batch_i, seq_status)), (img_input_i[:,:,1]*255.0 + 128.0).astype(np.uint8))#+128.0
+                        #cv2.imwrite(os.path.join(out_2d_path, "{}_{}_{}img_seg_freq.png".format(iters, batch_i, seq_status)), (img_input_i[:,:,2]*255.0 + 128.0).astype(np.uint8))#+128.0
+                        cv2.imwrite(os.path.join(out_2d_path, "{}_{}_{}img_gray_rgb.png".format(iters, batch_i, seq_status)), (img_input_rgb_i[:,:,0]).astype(np.uint8))#+128.0
+                        #cv2.imwrite(os.path.join(out_2d_path, "{}_{}_{}img_edge_rgb.png".format(iters, batch_i, seq_status)), (img_input_rgb_i[:,:,1]).astype(np.uint8))#+128.0
+                        #cv2.imwrite(os.path.join(out_2d_path, "{}_{}_{}img_seg_rgb.png".format(iters, batch_i, seq_status)), (img_input_rgb_i[:,:,2]).astype(np.uint8))#+128.0
                         heatmaps_gt_combined_i = np.max(heatmaps_gt_i[:, :, 1:], axis=2)
                         cv2.imwrite(os.path.join(out_2d_path, "{}_{}_{}heatmaps_gt.png".format(iters, batch_i, seq_status)), (heatmaps_gt_combined_i*255.0).astype(np.uint8))
                         heatmaps_output_combined_i = np.max(heatmaps_output_i[:, :, 1:], axis=2)
@@ -160,7 +198,118 @@ def train_model_2d(args, config, model_2d, seq_i = -1):
          'iter': iters,
          'state_dict': model_2d.state_dict(),
     }, is_best = False, is_last = True, filename = model_2d_save_path)
+   
+   
+def train_model_mano(args, config, model_mano, seq_i = -1):
+    print("Training for MANO model")
+    cudnn.benchmark = True
     
+    # Data loader
+    train_loader = None
+    if config.dataset == 'ego2hands':
+        hand_dataset = Ego2Hands.Ego2HandsData(args, config, seq_i)
+        train_loader = torch.utils.data.DataLoader(hand_dataset,
+                batch_size=config.batch_size, shuffle=True,
+                num_workers=config.workers, pin_memory=True)
+    else:
+        raise Exception("Error, unknown dataset: {}".format(config.dataset))
+    
+    base_lr = config.base_lr_mano
+    policy_parameter = config.policy_parameter_mano
+    #if config.model_2d_name == params.MODEL_NAME_CPM:
+    #    parameters_2d, multiple_2d = get_cpm_parameters(model_2d, config, is_default=False)
+    #else:
+    parameters_mano = model_mano.parameters()
+    optimizer_mano = torch.optim.Adam(parameters_mano, base_lr)
+    lr_scheduler_mano = torch.optim.lr_scheduler.StepLR(optimizer_mano, step_size = policy_parameter.step_size, gamma = policy_parameter.gamma)
+    model_mano.train()
+    
+    out_mano_path = "outputs/{}/train_mano".format(config.dataset)
+    os.makedirs(out_mano_path, exist_ok = True)
+    model_mano_dir_path, model_mano_save_path = get_model_mano_save_path(args, config)
+    os.makedirs(model_mano_dir_path, exist_ok = True)
+
+    # Criterions
+    criterion_mse = nn.MSELoss().cuda()
+
+    # Measures
+    loss_meter = AverageMeter()
+    iters = 0
+    max_iter = config.max_iter_mano
+    
+    # Training starts
+    while iters < max_iter:
+        for i, (img_input_tensor, heatmpas_gt_tensor, img_input_rgb_tensor, mano_gt_tensor) in enumerate(train_loader):
+            iters += 1
+            if iters > max_iter:
+                break
+            img_batch_size = img_input_tensor.size(0)
+            
+            # Segmentation module       
+            img_input_var = torch.autograd.Variable(img_input_tensor.cuda())
+            heatmaps_gt_var = torch.autograd.Variable(heatmpas_gt_tensor.cuda())
+            mano_gt_var = torch.autograd.Variable(mano_gt_tensor.cuda())
+             
+            mano_pred = model_mano(img_input_var)
+            
+            loss_mano = criterion_mse(mano_pred, mano_gt_var)
+            loss_meter.update(float(loss_mano), img_batch_size)
+
+            loss_mano_total = loss_mano
+
+            optimizer_mano.zero_grad()
+            loss_mano_total.backward()
+            optimizer_mano.step()
+            
+            lr_scheduler_mano.step()
+                
+            # Display info
+            if iters % config.display_interval == 0:
+                print("Train Iteration: {}".format(iters))
+                print("Learning rate: {}".format(lr_scheduler_mano.get_last_lr()))
+                print('Loss_mano = {loss.avg: .4f}'.format(loss=loss_meter))
+                
+                """
+                # Visualize Outputs
+                if args.save_outputs:
+                    img_input_np = img_input_var.cpu().data.numpy().transpose(0,2,3,1)
+                    img_input_rgb_np = img_input_rgb_tensor.cpu().data.numpy()
+                    heatmaps_output_np = heatmaps_stage_final.cpu().data.numpy().transpose(0,2,3,1)
+                    heatmaps_gt_np = heatmpas_gt_tensor.cpu().data.numpy().transpose(0,2,3,1)
+                    seq_status = "seq_{}".format(seq_i) if seq_i != -1 else ""
+                    for batch_i, (img_input_i, heatmaps_output_i, heatmaps_gt_i, img_input_rgb_i) in enumerate(zip(img_input_np, heatmaps_output_np, heatmaps_gt_np, img_input_rgb_np)):
+                        cv2.imwrite(os.path.join(out_2d_path, "{}_{}_{}img_gray_freq.png".format(iters, batch_i, seq_status)), (img_input_i[:,:,0]*255.0 + 128.0).astype(np.uint8))#+128.0
+                        #cv2.imwrite(os.path.join(out_2d_path, "{}_{}_{}img_edge_freq.png".format(iters, batch_i, seq_status)), (img_input_i[:,:,1]*255.0 + 128.0).astype(np.uint8))#+128.0
+                        #cv2.imwrite(os.path.join(out_2d_path, "{}_{}_{}img_seg_freq.png".format(iters, batch_i, seq_status)), (img_input_i[:,:,2]*255.0 + 128.0).astype(np.uint8))#+128.0
+                        cv2.imwrite(os.path.join(out_2d_path, "{}_{}_{}img_gray_rgb.png".format(iters, batch_i, seq_status)), (img_input_rgb_i[:,:,0]).astype(np.uint8))#+128.0
+                        #cv2.imwrite(os.path.join(out_2d_path, "{}_{}_{}img_edge_rgb.png".format(iters, batch_i, seq_status)), (img_input_rgb_i[:,:,1]).astype(np.uint8))#+128.0
+                        #cv2.imwrite(os.path.join(out_2d_path, "{}_{}_{}img_seg_rgb.png".format(iters, batch_i, seq_status)), (img_input_rgb_i[:,:,2]).astype(np.uint8))#+128.0
+                        heatmaps_gt_combined_i = np.max(heatmaps_gt_i[:, :, 1:], axis=2)
+                        cv2.imwrite(os.path.join(out_2d_path, "{}_{}_{}heatmaps_gt.png".format(iters, batch_i, seq_status)), (heatmaps_gt_combined_i*255.0).astype(np.uint8))
+                        heatmaps_output_combined_i = np.max(heatmaps_output_i[:, :, 1:], axis=2)
+                        cv2.imwrite(os.path.join(out_2d_path, "{}_{}_{}heatmaps_output.png".format(iters, batch_i, seq_status)), (heatmaps_output_combined_i*255.0).astype(np.uint8))
+                        kpts_i = get_kpts(np.expand_dims(heatmaps_gt_i.transpose(2, 0, 1), 0), img_h=img_input_i.shape[0], img_w=img_input_i.shape[1], num_keypoints=config.num_keypoints)
+                        hand_vis_i = paint_kpts(None, (cv2.cvtColor((img_input_i[:,:,0]*256.0+128.0).astype(np.uint8), cv2.COLOR_GRAY2RGB)).astype(np.uint8), kpts_i)
+                        cv2.imwrite(os.path.join(out_2d_path, "{}_{}_{}hand_vis.png".format(iters, batch_i, seq_status)), (hand_vis_i).astype(np.uint8))
+                """
+                
+                # Clear meters
+                loss_meter.reset()
+            
+            # Save models
+            if iters % config.save_interval == 0:
+                print("Saving latest model at {}".format(model_mano_save_path))
+                save_model({
+                     'iter': iters,
+                     'state_dict': model_mano.state_dict(),
+                }, is_best = False, is_last = False, filename = model_mano_save_path)
+    # Save models
+    print("Saving finished model at {}".format(model_mano_save_path))
+    save_model({
+         'iter': iters,
+         'state_dict': model_mano.state_dict(),
+    }, is_best = False, is_last = True, filename = model_mano_save_path)
+   
 """
 def test_model_2d(args, config, model_2d):
     cudnn.benchmark = True
@@ -223,10 +372,12 @@ def test_model_2d(args, config, model_2d):
 if __name__ == '__main__':
     args = parse()
     config = Config(args.config)
-    model_2d = construct_model_2d(args, config)
+    #model_2d = construct_model_2d(args, config)
+    model_mano = construct_model_mano(args, config)
     if not args.eval:
         if not args.adapt:
-            train_model_2d(args, config, model_2d)
+            #train_model_2d(args, config, model_2d)
+            train_model_mano(args, config, model_mano)
         else:
             for seq_i in range(1, config.num_seqs + 1):
                 train_model_2d(args, config, model_2d, seq_i)

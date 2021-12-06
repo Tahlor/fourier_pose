@@ -9,13 +9,6 @@ import math
 from utils import *
 import params
 
-def img2freq(img):
-    dft = cv2.dft(np.float32(img),flags = cv2.DFT_COMPLEX_OUTPUT)
-    dft_shift = np.fft.fftshift(dft)
-    magnitude_spectrum = 20*np.log(cv2.magnitude(dft_shift[:,:,0],dft_shift[:,:,1]) + 0.000000001)
-    magnitude_spectrum = magnitude_spectrum/np.amax(magnitude_spectrum)*255
-    return magnitude_spectrum
-
 def random_bg_augment(img, img_path = "", bg_adapt = False, brightness_aug = True, flip_aug = True):
     if brightness_aug:
         if bg_adapt:
@@ -164,6 +157,8 @@ def read_ego2hands_files(args, config, all_data, seq_i = -1):
             img_path_list = []
             energy_path_list = []
             kpts_2d_glob_path_list = []
+            kpts_3d_can_path_list = []
+            mano_path_list = []
             for root, dirs, files in os.walk(ego2hands_root_dir):
                 for file_name in files:
                     if file_name.endswith(".png") and "energy" not in file_name and "vis" not in file_name:
@@ -174,8 +169,15 @@ def read_ego2hands_files(args, config, all_data, seq_i = -1):
                             energy_path = img_path.replace(".png", "_energy.png")
                             energy_path_list.append(energy_path)
                             kpts_2d_glob_path_list.append(kpts_2d_path)
-                        
-            return img_path_list, energy_path_list, kpts_2d_glob_path_list
+                            mano_path = os.path.join(root, 'mano_stage3.npy')
+                            if not os.path.exists(mano_path):
+                                mano_path = os.path.join(root, 'mano_stage2.npy')
+                            mano_path_list.append(mano_path)
+                            kpts_3d_can_path = os.path.join(root, 'kpts_3d_can_stage3.npy')
+                            if not os.path.exists(kpts_3d_can_path):
+                                kpts_3d_can_path = os.path.join(root, 'kpts_3d_can_stage2.npy')
+                            kpts_3d_can_path_list.append(kpts_3d_can_path)
+            return img_path_list, energy_path_list, kpts_2d_glob_path_list, mano_path_list, kpts_3d_can_path_list
         else:
             img_path_list = []
             energy_path_list = []
@@ -237,7 +239,7 @@ class Ego2HandsData(data.Dataset):
         self.img_path_all_list = None
         if not self.args.eval:
             self.img_path_all_list, self.energy_path_all_list = read_ego2hands_files(self.args, self.config, all_data = True)
-            self.img_path_list, self.energy_path_list, self.kpts_2d_glob_path_list = read_ego2hands_files(self.args, self.config, all_data = False)
+            self.img_path_list, self.energy_path_list, self.kpts_2d_glob_path_list, self.mano_path_list, self.kpts_3d_can_path_list = read_ego2hands_files(self.args, self.config, all_data = False)
         else:   
             self.img_path_list, self.kpts_2d_glob_path_list = read_ego2hands_files(self.args, self.config)
                 
@@ -248,6 +250,10 @@ class Ego2HandsData(data.Dataset):
         self.valid_energy_th_ratio = params.VALID_ENERGY_TH_RATIO
         self.EMPTY_IMG_ARRAY = np.zeros((1, 1))
         self.EMPTY_BOX_ARRAY = np.zeros([0, 0, 0, 0])
+        #self.jpeg = TurboJPEG('/home/alex/anaconda3/envs/pose_env/lib/libturbojpeg.so')#('/usr/lib/libturbojpeg.so')
+        self.mean_dct = np.reshape(np.load("files_saved/dct_mean_192.npy")[:64], (1, 1, 64))
+        self.std_dct = np.reshape(np.load("files_saved/dct_std_192.npy")[:64], (1, 1, 64))
+        self.dct_size = 56
         print("Loading finished")
         if self.img_path_all_list is not None:
             print("#hand imgs all: {}".format(len(self.img_path_all_list)))
@@ -283,6 +289,9 @@ class Ego2HandsData(data.Dataset):
             right_energy_init = cv2.imread(self.energy_path_list[right_i], 0)
             right_energy_init = cv2.resize(right_energy_init, (self.img_w, self.img_h)).astype(np.float32)/255.0
             right_kpts_2d_glob_init = np.load(self.kpts_2d_glob_path_list[right_i])
+            mano_init = np.load(self.mano_path_list[right_i])[-45:]
+            kpts_3d_can_init = np.load(self.kpts_3d_can_path_list[right_i])
+            kpts_3d_can_selected = (kpts_3d_can_init[[5, 17],:] - kpts_3d_can_init[0]).reshape(-1)
             right_img_orig = right_img_init.copy()
             #right_img, right_seg, right_energy = seg_augmentation_wo_kpts(right_img, right_seg, right_energy)
             # Brightness Augmentation
@@ -372,21 +381,33 @@ class Ego2HandsData(data.Dataset):
             edge_cropped = cv2.Canny(img_cropped.astype(np.uint8), 25, 100).astype(np.float32)
             
             # transform to frequency domain
-            img_cropped = img2freq(img_cropped)
-            edge_cropped = img2freq(edge_cropped)
-            seg_cropped = img2freq(seg_cropped)
+            img_cropped[seg_cropped < 128] = 0
+            img_cropped_freq = img_cropped#img2freq(img_cropped)
+            edge_cropped_freq = edge_cropped#img2freq(edge_cropped)#
+            seg_cropped_freq = seg_cropped#img2freq(seg_cropped)#
             
             if self.args.use_seg:
-                img_input = np.stack((img_cropped, edge_cropped, seg_cropped), 0)
+                img_input = np.expand_dims(img_cropped_freq, 0)#np.stack((img_cropped_freq, edge_cropped_freq, seg_cropped_freq), 0)
+                #img_input = img_cropped_freq
+                #img_input = (img_input - self.mean_dct) / self.std_dct
+                #img_input = cv2.resize(img_input, (self.dct_size, self.dct_size))
+                #img_input = img_input.transpose(2, 0, 1)
+                #print(img_input.shape)
+                #print(img_input)
+                img_input_rgb = np.expand_dims(img_cropped, -1)#np.stack((img_cropped, edge_cropped, seg_cropped), -1)
             else:
-                img_input = np.stack((img_cropped, edge_cropped, np.zeros_like(edge_cropped)), 0)
+                #img_input = np.stack((img_cropped_freq, edge_cropped_freq, np.zeros_like(edge_cropped_freq)), 0)
+                img_input_rgb = np.stack((img_cropped, edge_cropped, np.zeros_like(edge_cropped)), -1)
             heatmaps = generate_heatmaps((self.crop_size, self.crop_size), self.crop_stride, kpts_2d_cropped, None, is_ratio=True)
                 
             # Prepare tensors
-            img_input_tensor = normalize_tensor(torch.from_numpy(img_input), 128.0, 256.0)
+            img_input_tensor = torch.from_numpy(img_input).float()#normalize_tensor(torch.from_numpy(img_input), 128.0, 256.0)
+            img_input_rgb_tensor = torch.from_numpy(img_input_rgb)
             heatmaps_tensor = torch.from_numpy(heatmaps.transpose(2, 0, 1))
+            pose_np = np.concatenate((mano_init, kpts_3d_can_selected))
+            mano_tensor = torch.from_numpy(pose_np)
 
-            return img_input_tensor, heatmaps_tensor
+            return img_input_tensor, heatmaps_tensor, img_input_rgb_tensor, mano_tensor
         else:
             # Prepare image
             img_real_test = cv2.imread(self.img_path_list[index]).astype(np.float32)

@@ -1,8 +1,15 @@
 dataset: "ego2hands"
 model_2d_name: "CPM"
+model_mano_name: "resnet"
 dataset_train_dir: "/home/alex/Documents/Data/Ego2Hands/train"
+#'C:/School/Alex/PoseDatasets/Ego2HandsPose/train_orig'
+#
 dataset_eval_dir: "/home/alex/Documents/Data/Ego2Hands/eval"
+#'C:/School/Alex/PoseDatasets/Ego2HandsPose/eval'
+#
 bg_all_dir: "/home/alex/Documents/Data/backgrounds"
+#'C:/School/Alex/backgrounds'
+#"/home/alex/Documents/Data/backgrounds"
 
 num_2d_stages: 6
 num_keypoints: 21
@@ -11,9 +18,18 @@ workers: 4
 display_interval: 1000
 save_interval: 2000
 max_iter_2d: 100000
+max_iter_mano: 60000
 batch_size: 4
 base_lr_2d: 0.0001
+base_lr_mano: 0.000003125
+#0.0001
 #-------------lr_policy--------------------#
 policy_parameter_2d:
   gamma: 0.5
   step_size: 25000
+  
+policy_parameter_mano:
+  gamma: 0.5
+#0.5
+  step_size: 20000
+#10000

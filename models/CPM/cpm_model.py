@@ -18,62 +18,62 @@ class CPM(nn.Module):
     def __init__(self, k):
         super(CPM, self).__init__()
         self.k = k
-        self.in_chan = 3
-        self.pool_center = nn.AvgPool2d(kernel_size=9, stride=8, padding=1)
-        self.conv1_stage1 = conv_bn(self.in_chan, 128, kernel_size=9, padding=4)
+        self.in_chan = 1#3
+        self.sigmoid = nn.Sigmoid()
+        self.conv1_stage1 = conv_bn(self.in_chan, 256, kernel_size=3, padding=1)#9, padding=4)
         self.pool1_stage1 = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        self.conv2_stage1 = conv_bn(128, 128, kernel_size=9, padding=4)
+        self.conv2_stage1 = conv_bn(256, 128, kernel_size=3, padding=1)#9, padding=4)
         self.pool2_stage1 = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        self.conv3_stage1 = conv_bn(128, 128, kernel_size=9, padding=4)
+        self.conv3_stage1 = conv_bn(128, 128, kernel_size=3, padding=1)#9, padding=4)
         self.pool3_stage1 = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        self.conv4_stage1 = conv_bn(128, 32, kernel_size=5, padding=2)
-        self.conv5_stage1 = conv_bn(32, 512, kernel_size=9, padding=4)
+        self.conv4_stage1 = conv_bn(128, 32, kernel_size=3, padding=1)#5, padding=2)
+        self.conv5_stage1 = conv_bn(32, 512, kernel_size=3, padding=1)#9, padding=4)
         self.conv6_stage1 = conv_bn(512, 512, kernel_size=1)
         self.conv7_stage1 = conv_bn(512, self.k + 1, kernel_size=1)
 
-        self.conv1_stage2 = conv_bn(self.in_chan, 128, kernel_size=9, padding=4)
+        self.conv1_stage2 = conv_bn(self.in_chan, 256, kernel_size=3, padding=1)#9, padding=4)
         self.pool1_stage2 = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        self.conv2_stage2 = conv_bn(128, 128, kernel_size=9, padding=4)
+        self.conv2_stage2 = conv_bn(256, 128, kernel_size=3, padding=1)#9, padding=4)
         self.pool2_stage2 = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        self.conv3_stage2 = conv_bn(128, 128, kernel_size=9, padding=4)
+        self.conv3_stage2 = conv_bn(128, 128, kernel_size=3, padding=1)#9, padding=4)
         self.pool3_stage2 = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        self.conv4_stage2 = conv_bn(128, 32, kernel_size=5, padding=2)
+        self.conv4_stage2 = conv_bn(128, 32, kernel_size=3, padding=1)#5, padding=2)
 
-        self.Mconv1_stage2 = conv_bn(32 + self.k + 1, 128, kernel_size=11, padding=5)
-        self.Mconv2_stage2 = conv_bn(128, 128, kernel_size=11, padding=5)
-        self.Mconv3_stage2 = conv_bn(128, 128, kernel_size=11, padding=5)
+        self.Mconv1_stage2 = conv_bn(32 + self.k + 1, 256, kernel_size=3, padding=1)#11, padding=5)
+        self.Mconv2_stage2 = conv_bn(256, 128, kernel_size=3, padding=1)#11, padding=5)
+        self.Mconv3_stage2 = conv_bn(128, 128, kernel_size=3, padding=1)#11, padding=5)
         self.Mconv4_stage2 = conv_bn(128, 128, kernel_size=1, padding=0)
         self.Mconv5_stage2 = conv_bn(128, self.k + 1, kernel_size=1, padding=0)
 
-        self.conv1_stage3 = conv_bn(128, 32, kernel_size=5, padding=2)
+        self.conv1_stage3 = conv_bn(128, 32, kernel_size=3, padding=1)#5, padding=2)
 
-        self.Mconv1_stage3 = conv_bn(32 + self.k + 1, 128, kernel_size=11, padding=5)
-        self.Mconv2_stage3 = conv_bn(128, 128, kernel_size=11, padding=5)
-        self.Mconv3_stage3 = conv_bn(128, 128, kernel_size=11, padding=5)
+        self.Mconv1_stage3 = conv_bn(32 + self.k + 1, 256, kernel_size=3, padding=1)#11, padding=5)
+        self.Mconv2_stage3 = conv_bn(256, 128, kernel_size=3, padding=1)#11, padding=5)
+        self.Mconv3_stage3 = conv_bn(128, 128, kernel_size=3, padding=1)#11, padding=5)
         self.Mconv4_stage3 = conv_bn(128, 128, kernel_size=1, padding=0)
         self.Mconv5_stage3 = conv_bn(128, self.k + 1, kernel_size=1, padding=0)
 
-        self.conv1_stage4 = conv_bn(128, 32, kernel_size=5, padding=2)
+        self.conv1_stage4 = conv_bn(128, 32, kernel_size=3, padding=1)#5, padding=2)
 
-        self.Mconv1_stage4 = conv_bn(32 + self.k + 1, 128, kernel_size=11, padding=5)
-        self.Mconv2_stage4 = conv_bn(128, 128, kernel_size=11, padding=5)
-        self.Mconv3_stage4 = conv_bn(128, 128, kernel_size=11, padding=5)
+        self.Mconv1_stage4 = conv_bn(32 + self.k + 1, 256, kernel_size=3, padding=1)#11, padding=5)
+        self.Mconv2_stage4 = conv_bn(256, 128, kernel_size=3, padding=1)#11, padding=5)
+        self.Mconv3_stage4 = conv_bn(128, 128, kernel_size=3, padding=1)#11, padding=5)
         self.Mconv4_stage4 = conv_bn(128, 128, kernel_size=1, padding=0)
         self.Mconv5_stage4 = conv_bn(128, self.k + 1, kernel_size=1, padding=0)
 
-        self.conv1_stage5 = conv_bn(128, 32, kernel_size=5, padding=2)
+        self.conv1_stage5 = conv_bn(128, 32, kernel_size=3, padding=1)#5, padding=2)
 
-        self.Mconv1_stage5 = conv_bn(32 + self.k + 1, 128, kernel_size=11, padding=5)
-        self.Mconv2_stage5 = conv_bn(128, 128, kernel_size=11, padding=5)
-        self.Mconv3_stage5 = conv_bn(128, 128, kernel_size=11, padding=5)
+        self.Mconv1_stage5 = conv_bn(32 + self.k + 1, 256, kernel_size=3, padding=1)#11, padding=5)
+        self.Mconv2_stage5 = conv_bn(256, 128, kernel_size=3, padding=1)#11, padding=5)
+        self.Mconv3_stage5 = conv_bn(128, 128, kernel_size=3, padding=1)#11, padding=5)
         self.Mconv4_stage5 = conv_bn(128, 128, kernel_size=1, padding=0)
         self.Mconv5_stage5 = conv_bn(128, self.k + 1, kernel_size=1, padding=0)
 
-        self.conv1_stage6 = conv_bn(128, 32, kernel_size=5, padding=2)
+        self.conv1_stage6 = conv_bn(128, 32, kernel_size=3, padding=1)#5, padding=2)
 
-        self.Mconv1_stage6 = conv_bn(32 + self.k + 1, 128, kernel_size=11, padding=5)
-        self.Mconv2_stage6 = conv_bn(128, 128, kernel_size=11, padding=5)
-        self.Mconv3_stage6 = conv_bn(128, 128, kernel_size=11, padding=5)
+        self.Mconv1_stage6 = conv_bn(32 + self.k + 1, 256, kernel_size=3, padding=1)#11, padding=5)
+        self.Mconv2_stage6 = conv_bn(256, 128, kernel_size=3, padding=1)#11, padding=5)
+        self.Mconv3_stage6 = conv_bn(128, 128, kernel_size=3, padding=1)#11, padding=5)
         self.Mconv4_stage6 = conv_bn(128, 128, kernel_size=1, padding=0)
         self.Mconv5_stage6 = conv_bn(128, self.k + 1, kernel_size=1, padding=0)
 
@@ -87,7 +87,7 @@ class CPM(nn.Module):
         x = F.relu(self.conv4_stage1(x))
         x = F.relu(self.conv5_stage1(x))
         x = F.relu(self.conv6_stage1(x))
-        x = self.conv7_stage1(x)
+        x = self.sigmoid(self.conv7_stage1(x))
 
         return x
 
@@ -105,7 +105,7 @@ class CPM(nn.Module):
         x = F.relu(self.Mconv2_stage2(x))
         x = F.relu(self.Mconv3_stage2(x))
         x = F.relu(self.Mconv4_stage2(x))
-        x = self.Mconv5_stage2(x)
+        x = self.sigmoid(self.Mconv5_stage2(x))
 
         return x
 
@@ -117,7 +117,7 @@ class CPM(nn.Module):
         x = F.relu(self.Mconv2_stage3(x))
         x = F.relu(self.Mconv3_stage3(x))
         x = F.relu(self.Mconv4_stage3(x))
-        x = self.Mconv5_stage3(x)
+        x = self.sigmoid(self.Mconv5_stage3(x))
 
         return x
 
@@ -129,7 +129,7 @@ class CPM(nn.Module):
         x = F.relu(self.Mconv2_stage4(x))
         x = F.relu(self.Mconv3_stage4(x))
         x = F.relu(self.Mconv4_stage4(x))
-        x = self.Mconv5_stage4(x)
+        x = self.sigmoid(self.Mconv5_stage4(x))
 
         return x
 
@@ -141,7 +141,7 @@ class CPM(nn.Module):
         x = F.relu(self.Mconv2_stage5(x))
         x = F.relu(self.Mconv3_stage5(x))
         x = F.relu(self.Mconv4_stage5(x))
-        x = self.Mconv5_stage5(x)
+        x = self.sigmoid(self.Mconv5_stage5(x))
 
         return x
 
@@ -153,7 +153,7 @@ class CPM(nn.Module):
         x = F.relu(self.Mconv2_stage6(x))
         x = F.relu(self.Mconv3_stage6(x))
         x = F.relu(self.Mconv4_stage6(x))
-        x = self.Mconv5_stage6(x)
+        x = self.sigmoid(self.Mconv5_stage6(x))
 
         return x
 
