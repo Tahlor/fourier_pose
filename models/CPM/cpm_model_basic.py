@@ -15,6 +15,15 @@ import torch
 #         return x
 
 class VGG(nn.Module):
+    """ VGG outputs a bunch of positions
+            # prediction = sin ( 2pi * position * projection )
+            # arcsine(prediction) / (2pi * projection) = position
+
+        x_proj = (2.*np.pi*x) @ B.T
+        return np.concatenate([np.sin(x_proj), np.cos(x_proj)], axis=-1)
+
+
+    """
     def __init__(self, outputs, ):
         super(VGG, self).__init__()
         self.model = torch.hub.load('pytorch/vision:v0.6.0', 'vgg19', pretrained=True)
