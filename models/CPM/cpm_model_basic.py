@@ -16,12 +16,15 @@ import torch
 
 class VGG(nn.Module):
     """ VGG outputs a bunch of positions
+            # position * projection = x*a+y*b
             # prediction = sin ( 2pi * position * projection )
             # arcsine(prediction) / (2pi * projection) = position
 
-        x_proj = (2.*np.pi*x) @ B.T
-        return np.concatenate([np.sin(x_proj), np.cos(x_proj)], axis=-1)
-
+            # arccos(prediction) / (2pi) = x*a+y*b
+            # arcsine(prediction) / (2pi) = x*a+y*b
+                # Network just learns that these both need to be x*a + y*b
+                # Projection Matrix * [x y] = Predictions
+            # X = torch.linalg.solve(A, [pred_arcsine, pred_arccos])
 
     """
     def __init__(self, outputs, ):
@@ -36,5 +39,22 @@ class VGG(nn.Module):
     def forward(self, x):
         return self.model(x)
 
+def calc_best_guess(preds,B_guass):
+    # split preds
+    preds1 = torch.arcsin(preds1) / (2 * np.pi * B_gauss)
+    preds2 = torch.arccos(preds2) / (2 * np.pi * B_gauss)
+    # recombine preds
+
+    regressor = LinearRegression()
+
+    solution = regressor.fit(B_guass, preds)
+    return solution
+
 if __name__=='__main__':
     VGG()
+
+    import numpy as np
+    from sklearn.linear_model import LinearRegression
+
+    mapping_size = 256
+    B_gauss = np.random.normal((mapping_size, 2))

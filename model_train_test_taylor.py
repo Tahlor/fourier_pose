@@ -161,64 +161,6 @@ def train_model_2d(args, config, model_2d, seq_i = -1):
          'state_dict': model_2d.state_dict(),
     }, is_best = False, is_last = True, filename = model_2d_save_path)
     
-"""
-def test_model_2d(args, config, model_2d):
-    cudnn.benchmark = True
-    # Data loader
-    test_loader = None
-    if config.dataset == 'ego2hands':
-        hand_dataset = Ego2Hands.Ego2HandsData(args, config)
-        test_loader = torch.utils.data.DataLoader(hand_dataset,
-                batch_size=1, shuffle=False,
-                num_workers=1, pin_memory=True)
-    else:
-        raise Exception("Error, unknown dataset: {}".format(config.dataset))
-    
-    model_2d.eval()
-    
-    out_2d_path = "outputs/{}/test_2d".format(config.dataset)
-    create_dir(out_2d_path)
-    
-    for i, (img_l_input_tensor, img_r_input_tensor) in enumerate(test_loader):
-        img_batch_size = img_l_input_tensor.size(0)
-        
-        img_h_l, img_w_l = img_l_input_tensor.shape[1], img_l_input_tensor.shape[2]
-        img_l_valid = img_h_l != 1
-        if img_l_valid:
-            _, _, _, _, _, heatmaps_l_stage_final = model_2d(img_l_input_tensor)
-        img_h_r, img_w_r = img_r_input_tensor.shape[1], img_r_input_tensor.shape[2]
-        img_r_valid = img_h_r != 1
-        if img_r_valid:
-            _, _, _, _, _, heatmaps_r_stage_final = model_2d(img_r_input_tensor)
-                    
-        # Visualize Outputs
-        if args.save_outputs:
-            if img_l_valid:
-                img_input_l_np = img_l_input_tensor.cpu().data.numpy().transpose(0,2,3,1)
-                heatmaps_output_l_np = heatmaps_l_stage_final.cpu().data.numpy().transpose(0,2,3,1)
-                for batch_i, (img_input_l_i, heatmaps_output_l_i) in enumerate(zip(img_input_l_np, heatmaps_output_l_np)):
-                    cv2.imwrite(os.path.join(out_2d_path, "{}_{}_img_l_gray.png".format(i, batch_i)), (img_input_l_i[:,:,0]*256.0+128.0).astype(np.uint8))
-                    cv2.imwrite(os.path.join(out_2d_path, "{}_{}_img_l_seg.png".format(i, batch_i)), (img_input_l_i[:,:,1]*256.0+128.0).astype(np.uint8))
-                    cv2.imwrite(os.path.join(out_2d_path, "{}_{}_img_l_edge.png".format(i, batch_i)), (img_input_l_i[:,:,2]*256.0+128.0).astype(np.uint8))
-                    heatmaps_output_combined_l_i = np.max(heatmaps_output_l_i[:, :, 1:], axis=2)
-                    cv2.imwrite(os.path.join(out_2d_path, "{}_{}_heatmaps_output_l.png".format(i, batch_i)), (heatmaps_output_combined_l_i*255.0).astype(np.uint8))
-                    kpts_l_i = get_kpts(np.expand_dims(heatmaps_output_l_i.transpose(2, 0, 1), 0), img_h=img_input_l_i.shape[0], img_w=img_input_l_i.shape[1], num_keypoints=config.num_keypoints, mode='gan_hand')
-                    hand_vis_l_i = paint_kpts(None, (cv2.cvtColor((img_input_l_i[:,:,0]*256.0+128.0).astype(np.uint8), cv2.COLOR_GRAY2RGB)).astype(np.uint8), kpts_l_i)
-                    cv2.imwrite(os.path.join(out_2d_path, "{}_{}_hand_vis_l.png".format(i, batch_i)), (hand_vis_l_i).astype(np.uint8))
-
-            if img_r_valid:
-                img_input_r_np = img_r_input_tensor.cpu().data.numpy().transpose(0,2,3,1)
-                heatmaps_output_r_np = heatmaps_r_stage_final.cpu().data.numpy().transpose(0,2,3,1)
-                for batch_i, (img_input_r_i, heatmaps_output_r_i) in enumerate(zip(img_input_r_np, heatmaps_output_r_np)):
-                    cv2.imwrite(os.path.join(out_2d_path, "{}_{}_img_r_gray.png".format(i, batch_i)), (img_input_r_i[:,:,0]*256.0+128.0).astype(np.uint8))
-                    cv2.imwrite(os.path.join(out_2d_path, "{}_{}_img_r_seg.png".format(i, batch_i)), (img_input_r_i[:,:,1]*256.0+128.0).astype(np.uint8))
-                    cv2.imwrite(os.path.join(out_2d_path, "{}_{}_img_r_edge.png".format(i, batch_i)), (img_input_r_i[:,:,2]*256.0+128.0).astype(np.uint8))
-                    heatmaps_output_combined_r_i = np.max(heatmaps_output_r_i[:, :, 1:], axis=2)
-                    cv2.imwrite(os.path.join(out_2d_path, "{}_{}_heatmaps_output_r.png".format(i, batch_i)), (heatmaps_output_combined_r_i*255.0).astype(np.uint8))
-                    kpts_r_i = get_kpts(np.expand_dims(heatmaps_output_r_i.transpose(2, 0, 1), 0), img_h=img_input_r_i.shape[0], img_w=img_input_r_i.shape[1], num_keypoints=config.num_keypoints, mode='gan_hand')
-                    hand_vis_r_i = paint_kpts(None, (cv2.cvtColor((img_input_r_i[:,:,0]*256.0+128.0).astype(np.uint8), cv2.COLOR_GRAY2RGB)).astype(np.uint8), kpts_r_i)
-                    cv2.imwrite(os.path.join(out_2d_path, "{}_{}_hand_vis_r.png".format(i, batch_i)), (hand_vis_r_i).astype(np.uint8))
-"""
 
 if __name__ == '__main__':
     args = parse()
