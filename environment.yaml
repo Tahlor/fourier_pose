@@ -1,0 +1,77 @@
+# conda env update -f environment.yaml
+name: ego
+channels:
+#  - huggingface
+  - defaults
+dependencies:
+  - opencv
+  - scikit-learn
+  - _libgcc_mutex
+  - blas
+  - brotlipy
+  - ca-certificates
+  - certifi
+  - cffi
+  - chardet
+  - click
+  - cryptography
+  - dataclasses
+  - filelock
+  - idna
+  - intel-openmp
+  - joblib
+  - ld_impl_linux-64
+  - libedit
+  - libffi
+  - libgcc-ng
+  - libprotobuf
+  - libstdcxx-ng
+  - mkl
+  - mkl-service
+  - mkl_fft
+  - mkl_random
+  - ncurses
+  - numpy
+  - numpy-base
+  - openssl
+  - packaging
+  - pip
+  - protobuf
+  - pycparser
+  - pyopenssl
+  - pyparsing
+  - pysocks
+  - python
+#  - python_abi
+  - readline
+  - regex
+  - requests
+  - sacremoses
+  - setuptools
+  - six
+  - sqlite
+  - tk
+  - tqdm
+#  - transformers
+#  - tokenizers
+  - urllib3
+  - wheel
+  - xz
+  - zlib
+  - pip:
+    - wandb
+    - sentencepiece
+    - editdistance
+    - torch
+    - typing-extensions
+    - torchvision
+    - matplotlib
+    - git+ssh://git@github.com/Tahlor/utils
+    - editdistance
+    - pandas
+    - wandb
+    - datasets
+    - easydict
+prefix: /home/taylor/anaconda3/envs/transformers
+
+# conda install pytorch torchvision cudatoolkit

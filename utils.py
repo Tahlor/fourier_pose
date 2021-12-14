@@ -10,7 +10,7 @@ import params
 
 def Config(filename):
     with open(filename, 'r') as f:
-        parser = edict(yaml.load(f))
+        parser = edict(yaml.safe_load(f))
     for x in parser:
         print('{}: {}'.format(x, parser[x]))
     return parser
@@ -34,7 +34,7 @@ class AverageMeter(object):
 
 def get_model_2d_save_path(args, config):
     model_dir_path = os.path.join(params.MODEL_SAVE_DIR_PATH, config.dataset, "2d")
-    model_name = '{}_{}_2d_pretrained.pth.tar'.format(config.dataset, config.model_2d_name)
+    model_name = '{}_{}_{}_2d_pretrained.pth.tar'.format(config.dataset, config.model_2d_name, config.experiment)
     model_save_path = os.path.join(model_dir_path, model_name)
     return model_dir_path, model_save_path
     

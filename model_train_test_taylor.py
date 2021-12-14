@@ -8,11 +8,13 @@ import torch.optim
 import torch.nn as nn
 import torch.backends.cudnn as cudnn
 from collections import OrderedDict
-from data_loaders import Ego2Hands
-from models.CPM import cpm_model
+from data_loaders import Ego2Hands_taylor
+from models.CPM import cpm_model_basic
 from utils import *
 import params
 
+EPS = 1e-6
+TESTING = False
 
 def parse():
     parser = argparse.ArgumentParser()
@@ -22,10 +24,10 @@ def parse():
     parser.add_argument('--adapt', action='store_true', default=False)
     parser.add_argument('--save_outputs', action='store_true', default=False)
     return parser.parse_args()
-    
+
 def construct_model_2d(args, config):
     if config.model_2d_name == params.MODEL_NAME_CPM:
-        model = cpm_model.CPM(k=config.num_keypoints)
+        model = cpm_model_basic.CPM(k=config.num_keypoints, baseline=config.experiment=="_BASELINE")
     else:
         raise Exception("Error, model {} not implemented".format(config.model_2d_name))
 
@@ -41,8 +43,8 @@ def construct_model_2d(args, config):
             name = k[7:]
             new_state_dict[name] = v
         model.load_state_dict(new_state_dict)
-    model = torch.nn.DataParallel(model, device_ids=[0]).cuda()
-    return model
+    #model = torch.nn.DataParallel(model, device_ids=[0]).cuda()
+    return model.cuda()
 
 def train_model_2d(args, config, model_2d, seq_i = -1):
     print("Training for 2d model")
@@ -51,24 +53,31 @@ def train_model_2d(args, config, model_2d, seq_i = -1):
     # Data loader
     train_loader = None
     if config.dataset == 'ego2hands':
-        hand_dataset = Ego2Hands.Ego2HandsData(args, config, seq_i)
+        hand_dataset = Ego2Hands_taylor.Ego2HandsData(args, config, seq_i)
         train_loader = torch.utils.data.DataLoader(hand_dataset,
                 batch_size=config.batch_size, shuffle=True,
                 num_workers=config.workers, pin_memory=True)
+        hand_dataset.set_B_gauss(model_2d.B_gauss)
     else:
         raise Exception("Error, unknown dataset: {}".format(config.dataset))
     
     base_lr = config.base_lr_2d
     policy_parameter = config.policy_parameter_2d
-    if config.model_2d_name == params.MODEL_NAME_CPM:
+    if config.model_2d_name == params.MODEL_NAME_CPM and False:
         parameters_2d, multiple_2d = get_cpm_parameters(model_2d, config, is_default=False)
     else:
         parameters_2d = model_2d.parameters()
     optimizer_2d = torch.optim.Adam(parameters_2d, base_lr)
-    lr_scheduler_2d = torch.optim.lr_scheduler.StepLR(optimizer_2d, step_size = policy_parameter.step_size, gamma = policy_parameter.gamma)
+
+    if "step_size" in policy_parameter:
+        lr_scheduler_2d = torch.optim.lr_scheduler.StepLR(optimizer_2d, **policy_parameter, )
+    elif "patience"  in policy_parameter:
+        policy_parameter["factor"] = policy_parameter["gamma"]
+        del policy_parameter["gamma"]
+        lr_scheduler_2d = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer_2d, **policy_parameter)
     model_2d.train()
     
-    out_2d_path = "outputs/{}/train_2d".format(config.dataset)
+    out_2d_path = "outputs/{}/train_2d".format(config.dataset+config.experiment)
     os.makedirs(out_2d_path, exist_ok = True)
     model_2d_dir_path, model_2d_save_path = get_model_2d_save_path(args, config)
     os.makedirs(model_2d_dir_path, exist_ok = True)
@@ -81,78 +90,74 @@ def train_model_2d(args, config, model_2d, seq_i = -1):
     iters = 0
     heat_weight = 32*32*21
     max_iter = config.max_iter_2d
-    
+    losses = []
     # Training starts
     while iters < max_iter:
-        for i, (img_input_tensor, heatmpas_gt_tensor) in enumerate(train_loader):
+        for i, (item) in enumerate(train_loader):
+            if not item["valid"].all().item():
+                print("BAD INDEX", item["index"][torch.where(item["valid"]==False)])
+                continue
+            bs=item["image"].shape[0]
             iters += 1
-            if iters > max_iter:
+            if iters * bs > max_iter:
                 break
-            img_batch_size = img_input_tensor.size(0)
-            
-            # Segmentation module       
-            img_input_var = torch.autograd.Variable(img_input_tensor.cuda())
-            heatmaps_gt_var = torch.autograd.Variable(heatmpas_gt_tensor.cuda())
-             
-            heatmaps_stage1, heatmaps_stage2, heatmaps_stage3, heatmaps_stage4, heatmaps_stage5, heatmaps_stage_final = model_2d(img_input_var)
-            
-            loss_stage1 = criterion_mse(heatmaps_stage1, heatmaps_gt_var) * heat_weight
-            loss_stage2 = criterion_mse(heatmaps_stage2, heatmaps_gt_var) * heat_weight
-            loss_stage3 = criterion_mse(heatmaps_stage3, heatmaps_gt_var) * heat_weight
-            loss_stage4 = criterion_mse(heatmaps_stage4, heatmaps_gt_var) * heat_weight
-            loss_stage5 = criterion_mse(heatmaps_stage5, heatmaps_gt_var) * heat_weight
-            loss_stage6 = criterion_mse(heatmaps_stage_final, heatmaps_gt_var) * heat_weight
-            
-            losses_2d_meter_list[0].update(float(loss_stage1), img_batch_size)
-            losses_2d_meter_list[1].update(float(loss_stage2), img_batch_size)
-            losses_2d_meter_list[2].update(float(loss_stage3), img_batch_size)
-            losses_2d_meter_list[3].update(float(loss_stage4), img_batch_size)
-            losses_2d_meter_list[4].update(float(loss_stage5), img_batch_size)
-            losses_2d_meter_list[5].update(float(loss_stage6), img_batch_size)
+            img = item["image"].cuda(); proj = item["proj"]; coords = item["coords"]
+            preds = model_2d(img)
+            if config.experiment!="_BASELINE":
+                if False:
+                    preds2 = preds.cpu().reshape(bs, 21, -1, 2).clamp(min=-1 + EPS, max=1 - EPS)
+                    preds_sin = torch.arcsin(preds2[:,:,:,0]) / (2*np.pi)
+                    preds_cos = torch.arccos(preds2[:,:,:,1]) / (2*np.pi)
+                    p = torch.stack([preds_sin, preds_cos], dim=3)
+                    _proj = proj.unsqueeze(-1).tile(2)
+                else:
+                    p = preds.cpu().reshape(bs, 21, -1, 2)
+                    _proj = item["sin_cos"]
+                if torch.isnan(p).any():
+                    input("PROBLEM")
+                loss = criterion_mse(p, _proj)
+            elif config.experiment=="_BASELINE":
+                p = preds.cpu().reshape(bs, 21, 2)
+                _proj = coords
+                loss = criterion_mse(p, _proj)
+            if torch.isnan(loss):
+                input("UGH")
 
-            loss_2d_total = loss_stage1 + loss_stage2 + loss_stage3 + loss_stage4 + loss_stage5 + loss_stage6
-
+            # solutions = regressor.fit(np.tile(B_gauss,21), p.detach().numpy()[0])
+            # p.shape = torch.Size([20, 21, 32, 2])
+            # B_gauss.shape
+            # (32, 2)
             optimizer_2d.zero_grad()
-            loss_2d_total.backward()
+            loss.backward()
             optimizer_2d.step()
-            
-            lr_scheduler_2d.step()
-                
+            lr_scheduler_2d.step(loss.item()/bs)
+            losses.append(loss.item()/bs)
+            # for joint in :
+            #     best_guess = cpm_model_basic.calc_best_guess(p[0,1].detach().numpy(), model_2d.B_gauss)
+            #     actual =
+            #     actual loss
+            if TESTING:
+                print(loss)
+                break
+
             # Display info
-            if iters % config.display_interval == 0:
+            if iters % config.display_interval - 1 == 0:
                 print("Train Iteration: {}".format(iters))
-                print("Learning rate: {}".format(lr_scheduler_2d.get_last_lr()))
-                for layer_i, loss_2d_meter in enumerate(losses_2d_meter_list):
-                    print('Loss_2d_stage{} = {loss.avg: .4f}'.format(layer_i, loss=loss_2d_meter))
-                
-                # Visualize Outputs
-                if args.save_outputs:
-                    img_input_np = img_input_var.cpu().data.numpy().transpose(0,2,3,1)
-                    heatmaps_output_np = heatmaps_stage_final.cpu().data.numpy().transpose(0,2,3,1)
-                    heatmaps_gt_np = heatmpas_gt_tensor.cpu().data.numpy().transpose(0,2,3,1)
-                    seq_status = "seq_{}".format(seq_i) if seq_i != -1 else ""
-                    for batch_i, (img_input_i, heatmaps_output_i, heatmaps_gt_i) in enumerate(zip(img_input_np, heatmaps_output_np, heatmaps_gt_np)):
-                        cv2.imwrite(os.path.join(out_2d_path, "{}_{}_{}img_gray.png".format(iters, batch_i, seq_status)), (img_input_i[:,:,0]*255.0 + 128.0).astype(np.uint8))#+128.0
-                        cv2.imwrite(os.path.join(out_2d_path, "{}_{}_{}img_edge.png".format(iters, batch_i, seq_status)), (img_input_i[:,:,1]*255.0 + 128.0).astype(np.uint8))#+128.0
-                        cv2.imwrite(os.path.join(out_2d_path, "{}_{}_{}img_seg.png".format(iters, batch_i, seq_status)), (img_input_i[:,:,2]*255.0 + 128.0).astype(np.uint8))#+128.0
-                        heatmaps_gt_combined_i = np.max(heatmaps_gt_i[:, :, 1:], axis=2)
-                        cv2.imwrite(os.path.join(out_2d_path, "{}_{}_{}heatmaps_gt.png".format(iters, batch_i, seq_status)), (heatmaps_gt_combined_i*255.0).astype(np.uint8))
-                        heatmaps_output_combined_i = np.max(heatmaps_output_i[:, :, 1:], axis=2)
-                        cv2.imwrite(os.path.join(out_2d_path, "{}_{}_{}heatmaps_output.png".format(iters, batch_i, seq_status)), (heatmaps_output_combined_i*255.0).astype(np.uint8))
-                        kpts_i = get_kpts(np.expand_dims(heatmaps_gt_i.transpose(2, 0, 1), 0), img_h=img_input_i.shape[0], img_w=img_input_i.shape[1], num_keypoints=config.num_keypoints)
-                        hand_vis_i = paint_kpts(None, (cv2.cvtColor((img_input_i[:,:,0]*256.0+128.0).astype(np.uint8), cv2.COLOR_GRAY2RGB)).astype(np.uint8), kpts_i)
-                        cv2.imwrite(os.path.join(out_2d_path, "{}_{}_{}hand_vis.png".format(iters, batch_i, seq_status)), (hand_vis_i).astype(np.uint8))
-                
-                # Clear meters
-                for loss_meter in losses_2d_meter_list:
-                    loss_meter.reset()
-            
+                #print("Learning rate: {}".format(lr_scheduler_2d.get_last_lr()))
+                print("LOSS:", np.average(losses))
+                losses = []
+            if iters in [1,10,50,100,200]:
+                print(iters)
+                plot_tensor(p)
+                plot_tensor(_proj)
+
             # Save models
             if iters % config.save_interval == 0:
                 print("Saving latest model at {}".format(model_2d_save_path))
                 save_model({
                      'iter': iters,
                      'state_dict': model_2d.state_dict(),
+                     'B_gauss': model_2d.B_gauss
                 }, is_best = False, is_last = False, filename = model_2d_save_path)
     # Save models
     print("Saving finished model at {}".format(model_2d_save_path))
@@ -161,6 +166,10 @@ def train_model_2d(args, config, model_2d, seq_i = -1):
          'state_dict': model_2d.state_dict(),
     }, is_best = False, is_last = True, filename = model_2d_save_path)
     
+def plot_tensor(f):
+    from matplotlib import pyplot as plt
+    plt.hist(f.detach().numpy().reshape(-1))
+    plt.show()
 
 if __name__ == '__main__':
     args = parse()
@@ -174,3 +183,4 @@ if __name__ == '__main__':
                 train_model_2d(args, config, model_2d, seq_i)
     #else:
     #    test_model_2d(args, config, model_2d)
+

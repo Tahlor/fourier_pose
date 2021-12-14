@@ -1,6 +1,6 @@
 dataset: "ego2hands"
 model_2d_name: "CPM"
-experiment: "_TAYLOR"
+experiment: "_BASELINE"
 dataset_train_dir: "/home/alex/Documents/Data/Ego2Hands/train"
 dataset_eval_dir: "/home/alex/Documents/Data/Ego2Hands/eval"
 bg_all_dir: "/home/alex/Documents/Data/backgrounds"
@@ -8,7 +8,7 @@ bg_all_dir: "/home/alex/Documents/Data/backgrounds"
 num_2d_stages: 6
 num_keypoints: 21
 
-workers: 6
+workers: 0
 #display_interval: 250
 #save_interval: 500
 display_interval: 100
