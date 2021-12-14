@@ -132,10 +132,11 @@ def train_model_2d(args, config, model_2d, seq_i = -1):
             optimizer_2d.step()
             lr_scheduler_2d.step(loss.item()/bs)
             losses.append(loss.item()/bs)
-            # for joint in :
-            #     best_guess = cpm_model_basic.calc_best_guess(p[0,1].detach().numpy(), model_2d.B_gauss)
-            #     actual =
-            #     actual loss
+            # b=0
+            # for joint in range(1,21):
+            #     best_guess = cpm_model_basic.calc_best_guess(p[b,joint].detach().numpy(), model_2d.B_gauss)
+            #     actual = cords[b, joint]
+            #     criterion_mse(best_guess, actual)
             if TESTING:
                 print(loss)
                 break
